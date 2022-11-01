@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.Data;
 using System.Drawing;
+using System.IO;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
@@ -19,110 +20,148 @@ namespace Network_1
 {
 	public partial class Form1 : Form
 	{
+		Uri baseUri;
+		List<Uri> localPages = new List<Uri>();
+		List<Uri> deltaPages = new List<Uri>();
+		List<Uri> outsidePages = new List<Uri>();
+		List<Uri> imageLinks = new List<Uri>();
+		const int max_init = 500;
+		int max = max_init;
+		int errors = 0;
+
 		public Form1()
 		{
 			InitializeComponent();
 		}
-
-		List<string> links = new List<string>();
-		int links_delta;
-		HttpRequestMessage message;
-		System.Net.Http.HttpClient client = new System.Net.Http.HttpClient();
-
-		private async void responce_handler()
+		private string Get(Uri uri)
 		{
-			string doc;
-			string resp_headers = "";
-			HttpResponseMessage resp;
-			List<string> images = new List<string>();
-			while (links_delta != 0)
+			HttpWebRequest request = (HttpWebRequest)WebRequest.Create(uri);
+			request.AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate;
+			try
 			{
-				links_delta = 0;
-				if (links[0] == "/")
-					continue;
-
-				if (links[0][0] == '/' && links[0] != "/")
-				{ 
-					links[0] = "http:/" + links[0];
-					System.Uri uri = new Uri(links[0]);
-					message = new HttpRequestMessage(HttpMethod.Get, uri);
-					message.Headers.Add("Host", uri.Host);
-					message.Method = HttpMethod.Get;
-					message.Headers.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:106.0) Gecko/20100101 Firefox/106.0");
-					message.Headers.Add("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8");
-					message.Headers.Add("Accept-Language", "ru");
-					message.Headers.Add("Accept-Encoding", "");
-					links.Remove(links[0]);
-				}
-
-				try
+				using (HttpWebResponse response = (HttpWebResponse)request.GetResponse())
+				using (Stream stream = response.GetResponseStream())
+				using (StreamReader reader = new StreamReader(stream))
 				{
-					resp = await client.SendAsync(message);
+					return reader.ReadToEnd();
 				}
-				catch (SocketException e)
+			} catch (WebException ee)
+			{
+				return null;
+			}
+		}
+		private void recursion()
+		{
+			imageLinks.Clear();
+			localPages.Clear();
+			outsidePages.Clear();
+			int localPage_i = 0;
+			max = max_init;
+			errors = 0;
+			while (max > 0 && ((localPage_i == 0 && localPages.Count == 0 || localPage_i < localPages.Count) && deltaPages.Count > 0) )
+			{
+				if (deltaPages.Count == 0)
 				{
-					MessageBox.Show(e.Message);
-					return;
+					deltaPages.Add(localPages[localPage_i]);
+					localPage_i++;
 				}
-				catch (WebException e)
+				for (int i = 0; i < deltaPages.Count && max > 0; i++)
 				{
-					MessageBox.Show(e.Message);
-					return;
-				}
-				catch (Exception e)
-				{
-					MessageBox.Show(e.Message, "Undefined Exception");
-					return;
-				}
-				doc = await resp.Content.ReadAsStringAsync();
-				resp_headers = resp.Headers.ToString();
-
-				foreach (String s in doc.Replace("><", ">\n<").Replace("\r", "").Split('\n'))
-				{
-					Match match;
-					if (s.Contains("<img"))
-						match = null;
-					match = Regex.Match(s, @"(<a[\s]+.*href=[""']([a-zA-Z.-/:]+\.(bmp|jpeg|png|jpg|svg|webp))[""'].*>)");
-					if (match.Success)
+					var item = deltaPages[i];
+					max--;
+					update_progress((int)Math.Floor(100 - max * 100f / max_init));
+					var doc_raw = Get(item);
+					if (doc_raw == null)
 					{
-						images.Add(match.Groups[2].Value);
+						errors++;
+						MessageBox.Show(item.ToString());
+						continue;
 					}
-					match = Regex.Match(s, @"(<a[\s]+.*href=[""']([a-zA-Z.-/:]+)[""'].*>)");
-					if (match.Success)
+					var doc_prep = doc_raw.Replace("\n", "").Replace("\r", "").Replace("\t"," ");
+					var doc = Regex.Replace(doc_prep, @"\s\s+", " ").Replace("><", ">\n<").Replace("> <", ">\n<").Split('\n');
+					foreach (var div in doc)
 					{
-
-						if (!links.Contains(match.Groups[2].Value))
+						Match m = Regex.Match(div, @"<img[\s:;/.a-zA-Z0-9?""=-]*src=[""']([:/.a-zA-Zа-яА-Я0-9?=-]+)[""'][\s:;/.a-zA-Z0-9?""=-]*/?>");
+						if (m.Success)
 						{
-							links.Add(match.Groups[2].Value);
-							links_delta++;
+							var extracted_img = m.Groups[1].Value;
+							if (extracted_img[0] == '/')
+								extracted_img = baseUri + extracted_img.Substring(1);
+							if (imageLinks.Contains(new Uri(extracted_img)))
+								continue;
+							imageLinks.Add(new Uri(extracted_img));
+							continue;
 						}
+
+						m = Regex.Match(div, @"<a[\s:;/.a-zA-Z0-9?""=-]*href=[""']([:/.a-zA-Z0-9?=-]+)[""'][\s:;/.a-zA-Z0-9?""=-]*/?>");
+						if (!m.Success)
+							continue;
+						var extracted = m.Groups[1].Value;
+						if (extracted.Contains(baseUri.Host) || extracted[0] == '/' || extracted[0] == '?' || !extracted.Contains("/"))
+						{
+							if (extracted[0] == '?' || !extracted.Contains("/"))
+								extracted = baseUri + extracted;
+							if (extracted[0] == '/')
+								extracted = baseUri + extracted.Substring(1);
+
+							if (localPages.Contains(new Uri(extracted)))
+								continue;
+							localPages.Add(new Uri(extracted));
+							deltaPages.Add(new Uri(extracted));
+							continue;
+						}
+						if (!outsidePages.Contains(new Uri(m.Groups[1].Value)))
+							outsidePages.Add(new Uri(m.Groups[1].Value));
 					}
-					match = Regex.Match(s, @"(<img[\s]+.*src=[""'](.+)[""']\s?.*>)");
-					if (match.Success)
-					{
-						images.Add(match.Groups[2].Value);
-					}
+					deltaPages.Remove(item);
 				}
 			}
-			this.Invoke
-			((MethodInvoker)delegate {
-				this.listBox1.Items.Clear();
-				this.listBox2.Items.Clear();
-				this.listBox3.Items.Clear();
-				foreach (string h in resp_headers.Split('\n') )
-					this.listBox3.Items.Add(h);
-				foreach (string img in images)
-					this.listBox2.Items.Add(img);
-				foreach (var val in links)
-					this.listBox1.Items.Add(val);
+			if (max != 0)
+				update_progress(100);
+		}
+
+		private void button1_Click(object sender, EventArgs e)
+		{
+			if (!(sender as Button).Enabled)
+				return;
+			try
+			{
+				baseUri = new Uri(this.textBox1.Text);
+			}
+			catch (UriFormatException ee)
+			{
+				MessageBox.Show(ee.Message, "BadURI");
+				throw;
+			}
+			(sender as Button).Enabled = false;
+			this.listBox1.Items.Clear();
+			this.listBox2.Items.Clear();
+			this.listBox3.Items.Clear();
+			deltaPages.Clear();
+			deltaPages.Add(baseUri);
+			var t = new Task(() => recursion());
+			t.Start();
+		}
+		private void update_progress(int percentage)
+		{
+			this.Invoke((MethodInvoker)delegate {
+				this.Text = "delta: " + deltaPages.Count;
+				this.progressBar1.Value = percentage;
+				if (percentage >= 100)
+					complete();
 			});
 		}
 
-		private async void button1_Click(object sender, EventArgs e)
+		private void complete()
 		{
-			links.Add(textBox1.Text);
-			links_delta = 1;
-			await Task.Run(responce_handler);
+			this.Invoke((MethodInvoker)delegate {
+				this.listBox1.Items.AddRange(imageLinks.ToArray());
+				this.listBox2.Items.AddRange(localPages.ToArray());
+				this.listBox3.Items.AddRange(outsidePages.ToArray());
+				label1.Text = String.Format("Изображений: {0}   Локальных: {1}   Внешних: {2}   Err: {3}", imageLinks.Count, localPages.Count, outsidePages.Count, errors);
+				this.button1.Enabled = true;
+				this.Invalidate();
+			});
 		}
 	}
 }

@@ -33,7 +33,7 @@ namespace Network_2
 
 		List<string> files = new List<string>();
 		List<string> dirs = new List<string>();
-		string host = "91.222.128.11", login = "testftp_guest", pass = "12345";
+		string host, login, pass;
 		private void doReq()
 		{
 			FtpWebRequest req = (FtpWebRequest)WebRequest.Create("ftp://" + host);
@@ -148,6 +148,9 @@ namespace Network_2
 
 		private void button1_Click(object sender, EventArgs e)
 		{
+			host = textBox1.Text;
+			login = textBox2.Text;
+			pass = textBox3.Text;
 			Task t = new Task(doReq);
 			t.Start();
 			if (sender is Button)

@@ -23,10 +23,11 @@ namespace Network_1
 		Uri baseUri;
 		List<Uri> localPages = new List<Uri>();
 		List<Uri> deltaPages = new List<Uri>();
-		List<Uri> outsidePages = new List<Uri>();
-		List<Uri> imageLinks = new List<Uri>();
-		const int max_init = 500;
-		int max = max_init;
+        List<Uri> outsidePages = new List<Uri>();
+        List<Uri> outsideImg = new List<Uri>();
+        List<Uri> imageLinks = new List<Uri>();
+		int max_init = 500;
+		int max;
 		int errors = 0;
 
 		public Form1()
@@ -74,7 +75,7 @@ namespace Network_1
 					if (doc_raw == null)
 					{
 						errors++;
-						MessageBox.Show(item.ToString());
+						//MessageBox.Show(item.ToString());
 						continue;
 					}
 					var doc_prep = doc_raw.Replace("\n", "").Replace("\r", "").Replace("\t"," ");
@@ -89,8 +90,12 @@ namespace Network_1
 								extracted_img = baseUri + extracted_img.Substring(1);
 							if (imageLinks.Contains(new Uri(extracted_img)))
 								continue;
-							imageLinks.Add(new Uri(extracted_img));
-							continue;
+							if (extracted_img.Contains(baseUri.AbsoluteUri))
+								imageLinks.Add(new Uri(extracted_img));
+							else
+								if (!outsideImg.Contains(new Uri(extracted_img)))
+									outsideImg.Add(new Uri(extracted_img));
+                            continue;
 						}
 
 						m = Regex.Match(div, @"<a[\s:;/.a-zA-Z0-9?""=-]*href=[""']([:/.a-zA-Z0-9?=-]+)[""'][\s:;/.a-zA-Z0-9?""=-]*/?>");
@@ -124,13 +129,15 @@ namespace Network_1
 		{
 			if (!(sender as Button).Enabled)
 				return;
+			int.TryParse(maskedTextBox1.Text, out max_init);
+			max = max_init;
 			try
 			{
 				baseUri = new Uri(this.textBox1.Text);
 			}
 			catch (UriFormatException ee)
 			{
-				MessageBox.Show(ee.Message, "BadURI");
+				//MessageBox.Show(ee.Message, "BadURI");
 				throw;
 			}
 			(sender as Button).Enabled = false;
@@ -155,10 +162,10 @@ namespace Network_1
 		private void complete()
 		{
 			this.Invoke((MethodInvoker)delegate {
-				this.listBox1.Items.AddRange(imageLinks.ToArray());
-				this.listBox2.Items.AddRange(localPages.ToArray());
-				this.listBox3.Items.AddRange(outsidePages.ToArray());
-				label1.Text = String.Format("Изображений: {0}   Локальных: {1}   Внешних: {2}   Err: {3}", imageLinks.Count, localPages.Count, outsidePages.Count, errors);
+				this.listBox1.Items.AddRange(localPages.ToArray());
+				this.listBox2.Items.AddRange(imageLinks.ToArray());
+                this.listBox3.Items.AddRange(outsideImg.ToArray());
+				label1.Text = String.Format("Изображений: {0}   Внешних: {2}   Локальных: {1}   Err: {3}", imageLinks.Count, localPages.Count, outsideImg.Count, errors);
 				this.button1.Enabled = true;
 				this.Invalidate();
 			});

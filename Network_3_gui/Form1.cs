@@ -11,6 +11,7 @@ using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using System.Text.RegularExpressions;
+using System.IO;
 
 namespace Network_3_gui
 {
@@ -44,10 +45,19 @@ namespace Network_3_gui
             mail.CC.Add(recvBox.Text);
             mail.Subject = subjBox.Text;
             mail.Body = msgBox.Text;
-
-            foreach(var item in list)
+            Attachment at;
+            foreach (var item in list)
             {
-                Attachment at = new Attachment(item);
+
+                try
+                {
+                    at = new Attachment(item);
+                }
+                catch (IOException ee)
+                {
+                    MessageBox.Show(ee.Message);
+                    return;
+                }
                 mail.Attachments.Add(at);
             }
             try
@@ -56,7 +66,7 @@ namespace Network_3_gui
             }
             catch (SmtpException ee)
             {
-                if (ee.StatusCode == SmtpStatusCode.BadCommandSequence )
+                if (ee.StatusCode == SmtpStatusCode.BadCommandSequence)
                     MessageBox.Show("Войти не удалось, попробуйте ещё раз");
                 else
                     MessageBox.Show(ee.StatusCode.ToString());
